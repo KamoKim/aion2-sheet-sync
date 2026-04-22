@@ -92,13 +92,14 @@ async function fetchCharacterData(page, nickname) {
 
   const characterPageUrl = buildCharacterPageUrl(serverId, characterId);
 
+  // 🔥 networkidle 제거 (timeout 방지)
   await page.goto(characterPageUrl, {
     waitUntil: "domcontentloaded",
     timeout: 60000
   });
 
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(500);
+  // 🔥 최소 대기 (세션 확보용)
+  await page.waitForTimeout(1200);
 
   const detailUrl =
     "https://aion2.plaync.com/api/character/info?lang=ko" +
@@ -179,6 +180,7 @@ async function main() {
 
   const page = await context.newPage();
 
+  // 🔥 봇 탐지 회피
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", {
       get: () => false
@@ -193,6 +195,8 @@ async function main() {
   const results = [];
 
   for (const nickname of nicknames) {
+
+    // 🔥 빈값 만나면 즉시 종료
     if (!nickname || nickname.trim() === "") {
       console.log("빈값 발견 → 중단");
       break;
@@ -201,8 +205,12 @@ async function main() {
     try {
       const row = await fetchCharacterData(page, nickname);
       results.push(row);
+
       console.log(nickname, row);
+
+      // 🔥 속도 최적화
       await page.waitForTimeout(200);
+
     } catch (err) {
       console.error("row failed:", nickname, err);
       results.push([`오류: ${err.message}`, "", "", nowKSTString(), ""]);
