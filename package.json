@@ -1,0 +1,13 @@
+{
+  "name": "aion2-sheet-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "googleapis": "^140.0.1",
+    "playwright": "^1.54.0"
+  }
+}
