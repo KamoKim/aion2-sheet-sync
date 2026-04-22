@@ -5,7 +5,7 @@ const SERVER_ID = 2002;
 const RACE = 2;
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const SHEET_NAME = process.env.SHEET_NAME || "Sheet1";
+const SHEET_NAME = process.env.SHEET_NAME || "Players";
 const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 const MAX_ROWS = Number(process.env.MAX_ROWS || 300);
 
@@ -38,7 +38,8 @@ async function getSheetsClient() {
 }
 
 async function readNicknames(sheets) {
-  const range = `${SHEET_NAME}!B3:B${MAX_ROWS + 2}`;
+  const range = `'${SHEET_NAME}'!B3:B${MAX_ROWS + 2}`;
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
     range
@@ -56,10 +57,6 @@ async function readNicknames(sheets) {
 }
 
 async function fetchCharacterData(page, nickname) {
-  if (!nickname) {
-    return ["", "", "", "", ""];
-  }
-
   const searchUrl =
     "https://aion2.plaync.com/ko-kr/api/search/aion2/search/v2/character" +
     `?keyword=${encodeURIComponent(nickname)}` +
@@ -77,6 +74,7 @@ async function fetchCharacterData(page, nickname) {
   }, searchUrl);
 
   const list = Array.isArray(searchJson?.list) ? searchJson.list : [];
+
   if (!list.length) {
     return ["검색결과없음", "", "", nowKSTString(), ""];
   }
@@ -99,7 +97,8 @@ async function fetchCharacterData(page, nickname) {
     timeout: 60000
   });
 
-  await page.waitForTimeout(1500);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(500);
 
   const detailUrl =
     "https://aion2.plaync.com/api/character/info?lang=ko" +
@@ -139,12 +138,17 @@ async function fetchCharacterData(page, nickname) {
 }
 
 async function writeResults(sheets, rows) {
+  if (!rows.length) {
+    console.log("쓸 데이터 없음");
+    return;
+  }
+
   const startRow = 3;
   const endRow = startRow + rows.length - 1;
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!C${startRow}:G${endRow}`,
+    range: `'${SHEET_NAME}'!C${startRow}:G${endRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: rows
@@ -156,15 +160,30 @@ async function main() {
   const sheets = await getSheetsClient();
   const nicknames = await readNicknames(sheets);
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-blink-features=AutomationControlled"
+    ]
+  });
+
   const context = await browser.newContext({
     locale: "ko-KR",
     timezoneId: "Asia/Seoul",
     userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    viewport: { width: 1280, height: 800 }
   });
 
   const page = await context.newPage();
+
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => false
+    });
+  });
 
   await page.goto("https://aion2.plaync.com/ko-kr/characters/index", {
     waitUntil: "domcontentloaded",
@@ -172,12 +191,18 @@ async function main() {
   });
 
   const results = [];
+
   for (const nickname of nicknames) {
+    if (!nickname || nickname.trim() === "") {
+      console.log("빈값 발견 → 중단");
+      break;
+    }
+
     try {
       const row = await fetchCharacterData(page, nickname);
       results.push(row);
-      console.log(nickname || "(blank)", row);
-      await page.waitForTimeout(800);
+      console.log(nickname, row);
+      await page.waitForTimeout(200);
     } catch (err) {
       console.error("row failed:", nickname, err);
       results.push([`오류: ${err.message}`, "", "", nowKSTString(), ""]);
